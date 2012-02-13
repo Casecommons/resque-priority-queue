@@ -2,8 +2,9 @@ module Resque
   module Plugins
     module PriorityQueue
 
-      # the score is stored as the priority * multiplier + time.now.to_i, so that "ties" are handled correctly
-      PRIORITY_MULTIPLIER = (1e13).to_i
+      # the score is stored as the priority + the fraction of a century since Jan 1, 2012, so that "ties" are handled correctly
+      One_century = 100*365*24*60*60
+      Jan_1_2012  = Time.utc(2012).to_f
 
       MIN_PRIORITY = 0
       MAX_PRIORITY = 1000
@@ -129,7 +130,7 @@ module Resque
 
         # given a job score (from the zset), returns { :priority => cleaned priority, :created_at => unix timestamp }
         def job_score_parts(score)
-          { :priority => (score.to_i / PRIORITY_MULTIPLIER), :created_at => (score.to_i % PRIORITY_MULTIPLIER) }
+          { :priority => score.to_i, :created_at => unpack_timestamp(score.to_f) }
         end
 
         protected
@@ -161,9 +162,17 @@ module Resque
           
         end
 
+        def pack_timestamp(ts)
+          (ts-Jan_1_2012)/One_century
+        end
+
+        def unpack_timestamp(f)
+          Jan_1_2012 + (f-f.floor)*One_century
+        end
+
         # given a priority, calculate the final score to be used when adding the job to the queue zset
         def calculate_job_score(priority)
-          (clean_priority(priority) * PRIORITY_MULTIPLIER) + Time.now.to_i
+          clean_priority(priority) + pack_timestamp(Time.now.to_f)
         end
         
       end

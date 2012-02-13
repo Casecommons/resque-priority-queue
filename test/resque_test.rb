@@ -23,7 +23,7 @@ class JobTest < Test::Unit::TestCase
     Resque.push_with_priority(:priority_jobs, job, 75)
 
     # we actually store 1000 minus the priority
-    assert_equal 925, Resque.redis.zscore('queue:priority_jobs', Resque.encode(job)).to_i / Resque::Plugins::PriorityQueue::PRIORITY_MULTIPLIER
+    assert_equal 925, Resque.redis.zscore('queue:priority_jobs', Resque.encode(job)).to_i
 
   end
 
@@ -37,7 +37,7 @@ class JobTest < Test::Unit::TestCase
     Resque.push(:priority_jobs, new_job)
 
     # should also add priority to the job
-    assert_equal 500, Resque.redis.zscore('queue:priority_jobs', Resque.encode(new_job)).to_i / Resque::Plugins::PriorityQueue::PRIORITY_MULTIPLIER
+    assert_equal 500, Resque.redis.zscore('queue:priority_jobs', Resque.encode(new_job)).to_i
 
     # a regular push to a queue that hasn't been initialized with priority should be a normal set
     non_priority_job = { :class => SomeNonPriorityJob, :args => [] }
@@ -170,12 +170,19 @@ class JobTest < Test::Unit::TestCase
   end
 
   def test_calculate_job_score
-    @fake_now = Time.now
-    Time.stubs(:now).returns(@fake_now)
+    # The whole part of the priority should equal the (inverse) specified priority
+    assert_equal 500, Resque.send(:calculate_job_score, :normal).to_i
+    assert_equal   0, Resque.send(:calculate_job_score,:highest).to_i
+    assert_equal 223, Resque.send(:calculate_job_score,     777).to_i
 
-    assert_equal (Resque::Plugins::PriorityQueue::PRIORITY_MULTIPLIER * 500 + @fake_now.to_i), Resque.send(:calculate_job_score, :normal)
-    assert_equal (@fake_now.to_i), Resque.send(:calculate_job_score, :highest)
-    assert_equal (Resque::Plugins::PriorityQueue::PRIORITY_MULTIPLIER * 223 + @fake_now.to_i), Resque.send(:calculate_job_score, 777)
+    # The fractional part should encode creation order.
+    # The job_score should distinguish (and properly order) timestamp differences 
+    # down to a millisecond, provided that the system clock can.
+    a = Resque.send(:calculate_job_score,:normal)
+    t = Time.now+0.001
+    sleep 0.0001 until Time.now > t
+    b = Resque.send(:calculate_job_score,:normal)
+    assert a < b
 
   end
 
